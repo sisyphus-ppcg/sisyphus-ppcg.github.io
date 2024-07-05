@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Golfle</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+    <style>
+        body {
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        h1, p {
+            text-align: center;
+        }
+        .input-container {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .input-container span {
+            font-family: monospace;
+            background-color: #e0e0e0;
+            padding: 5px 10px;
+            border-top-left-radius: 5px;
+            border-bottom-left-radius: 5px;
+            border: 1px solid #ccc;
+            border-right: none;
+        }
+        #userFunction {
+            font-family: monospace;
+            padding: 5px 10px;
+            border-top-right-radius: 5px;
+            border-bottom-right-radius: 5px;
+            border: 1px solid #ccc;
+            outline: none;
+            width: 300px;
+        }
+        #submitBtn {
+            padding: 5px 15px;
+            border-radius: 5px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        #submitBtn:disabled {
+            background-color: #ccc;
+        }
+        table {
+            border-collapse: collapse;
+            width: 80%;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ccc;
+            padding: 8px;
+            text-align: center;
+        }
+        tr.success {
+            background-color: #d4edda;
+        }
+        tr.fail {
+            background-color: #f8d7da;
+        }
+        tr.error {
+            background-color: #d1ecf1;
+        }
+        .error-icon {
+            cursor: pointer;
+            position: relative;
+            display: inline-block;
+        }
+        .error-icon:hover .error-message {
+            visibility: visible;
+        }
+        .error-message {
+            visibility: hidden;
+            width: 200px;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 5px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%; 
+            left: 50%;
+            margin-left: -100px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .error-message::after {
+            content: "";
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            margin-left: -5px;
+            border-width: 5px;
+            border-style: solid;
+            border-color: #555 transparent transparent transparent;
+        }
+    </style>
+</head>
+<body>
+    <h1>Golfle</h1>
+    <p>Try to guess the hidden transformation by providing a Python one-liner.</p>
+    <div class="input-container">
+        <span>lambda x:</span>
+        <input type="text" id="userFunction" placeholder="Enter your function body" maxlength=25>
+    </div>
+    <button id="submitBtn" onclick="runFunction()" disabled>Submit</button>
+    <pre id="result"></pre>
+    <h2>History</h2>
+    <table id="history">
+        <thead>
+            <tr>
+                <th>Function</th>
+                <th>Result</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <script>
+        let testCases = [
+            {input: 'apple', output: 0},
+            {input: 'carrot', output: 1},
+            {input: 'banana', output: 3},
+            {input: 'pea', output: 1},
+            {input: 'pineapple', output: 1},
+            {input: 'cherry', output: 0},
+            {input: 'onion', output: 0},
+            {input: 'zucchini', output: 0},
+            {input: 'kiwi', output: 0},
+            {input: 'celery', output: 0},
+            {input: 'strawberry', output: 1},
+            {input: 'fig', output: 0},
+            {input: 'spinach', output: 1},
+            {input: 'nectarine', output: 1},
+            {input: 'beet', output: 0},
+            {input: 'grapefruit', output: 1},
+            {input: 'pumpkin', output: 0},
+            {input: 'date', output: 1},
+            {input: 'tomato', output: 1},
+            {input: 'persimmon', output: 0},
+            {input: 'yam', output: 1},
+            {input: 'lettuce', output: 0},
+            {input: 'pomegranate', output: 2},
+            {input: 'leek', output: 0},
+            {input: 'blueberry', output: 0},
+            {input: 'radish', output: 1},
+            {input: 'plum', output: 0},
+            {input: 'asparagus', output: 2},
+            {input: 'grape', output: 1},
+        ];
+        let pyodide;
+
+        function escapeHtml(unsafe)
+        {
+            return unsafe.toString()
+                 .replace(/&/g, "&amp;")
+                 .replace(/</g, "&lt;")
+                 .replace(/>/g, "&gt;")
+                 .replace(/"/g, "&quot;")
+                 .replace(/'/g, "&#039;");
+         }
+
+        async function loadPyodideAndPackages() {
+            pyodide = await loadPyodide();
+            document.getElementById('submitBtn').disabled = false;
+        }
+        loadPyodideAndPackages();
+
+        async function runFunction() {
+            let userFunction = document.getElementById('userFunction').value;
+            let result = document.getElementById('result');
+            let historyTable = document.getElementById('history').querySelector('tbody');
+
+            try {
+                let pass = true;
+                let failCase = null;
+                let userOutput = null;
+                for (let testCase of testCases) {
+                    let code = `
+                        user_func = lambda x: ${userFunction}
+                        user_func("${testCase.input}")
+                    `;
+                    userOutput = await pyodide.runPythonAsync(code);
+                    if (userOutput !== testCase.output) {
+                        pass = false;
+                        failCase = testCase;
+                        break;
+                    }
+                }
+
+                let row = document.createElement('tr');
+                row.innerHTML = `<td>${escapeHtml(userFunction)}</td>`;
+
+                if (pass) {
+                    res = "Congratulations! You found the correct transformation.";
+                    result.textContent = res;
+                    row.classList.add('success');
+                    row.innerHTML += `<td>${escapeHtml(res)}</td>`;
+                } else {
+                    res = `Input "${failCase.input}", expected ${failCase.output}, got ${userOutput}`;
+                    result.textContent = res;
+                    row.classList.add('fail');
+                    row.innerHTML += `<td>${escapeHtml(res)}</td>`;
+                }
+
+                historyTable.appendChild(row);
+            } catch (error) {
+                res = `Error: ${error.message.trim().split('\n').at(-1)}`;
+                result.textContent = res;
+                let row = document.createElement('tr');
+                row.classList.add('error');
+                row.innerHTML = `<td>${escapeHtml(userFunction)}</td><td>${escapeHtml(res)}</td>`;
+                historyTable.appendChild(row);
+            }
+        }
+    </script>
+</body>
+</html>
